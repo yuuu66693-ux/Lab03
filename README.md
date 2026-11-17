@@ -97,4 +97,4 @@ AI generated the Lab 03 functions, mode dispatch, form changes, design/plan note
 ## Submission
 GitHub repository: <https://github.com/yuuu66693-ux/Lab03>  
 Branch: `main`  
-Commit SHA: `pending`
+Commit SHA: `3f6cdfc6197ba116762a3c200821257198a1e4fd`
