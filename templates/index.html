@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Lab 02 — BJT DC Bias Calculator</title>
+    <title>Lab 03 — BJT DC Bias Calculator</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body>
@@ -13,15 +13,31 @@
         <div class="brand">⚡</div>
         <div>
           <div class="course">Computer Programming for Electrical Engineers</div>
-          <h1>BJT DC Bias Calculator <span class="sub">(Voltage-Divider Bias / ไบอัสแบบแบ่งแรงดัน)</span></h1>
+          <h1>BJT DC Bias Calculator <span class="sub">({{ mode_labels[mode] }})</span></h1>
         </div>
       </div>
     </header>
 
     <main class="container">
+      <section class="card mode-switch">
+        <form method="get" action="/" class="form-grid">
+          <div class="field">
+            <label for="mode">Circuit Mode / ชนิดวงจร</label>
+            <select id="mode" name="mode">
+              {% for m in modes %}
+              <option value="{{ m }}" {% if mode == m %}selected{% endif %}>{{ mode_labels[m] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="actions">
+            <button type="submit" class="btn-primary">Load mode / เปลี่ยนโหมด</button>
+          </div>
+        </form>
+      </section>
+
       {% if errors %}
       <section class="alert alert-error" role="alert">
-        <h2>Input Error / ข้อมูลนำเข้าไม่ถูกต้อง</h2>
+        <h2>Input Error / ข้อมูลนำเข้าไม่ถูกต้อง ({{ requested_mode or mode }})</h2>
         <ul>
           {% for e in errors %}
           <li><strong>{{ e.field or "input" }}:</strong> {{ e.message }}</li>
@@ -45,6 +61,7 @@
         <section class="card">
           <h2>Input Parameters / พารามิเตอร์วงจร</h2>
           <form method="post" action="/calculate" class="form-grid" novalidate>
+            <input type="hidden" name="mode" value="{{ mode }}" />
             <div class="field">
               <label for="vcc">VCC <span class="hint">(Supply Voltage / แรงดันจ่าย)</span></label>
               <div class="input-row">
@@ -53,6 +70,7 @@
               </div>
             </div>
 
+            {% if mode == 'divider' %}
             <div class="field">
               <label for="r1">R1 <span class="hint">(Upper divider / ตัวแบ่งบน)</span></label>
               <div class="input-row">
@@ -76,6 +94,19 @@
                 </select>
               </div>
             </div>
+            {% else %}
+            <div class="field">
+              <label for="rb">RB <span class="hint">(Base resistor / ตัวต้านทานฐาน)</span></label>
+              <div class="input-row">
+                <input id="rb" name="rb" type="number" step="any" value="{{ inp.get('rb','') }}" required />
+                <select name="rb_unit" aria-label="RB unit">
+                  {% for u in ['Ω','kΩ','MΩ'] %}
+                  <option value="{{ u }}" {% if inp.get('rb_unit','Ω') == u %}selected{% endif %}>{{ u }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            {% endif %}
 
             <div class="field">
               <label for="rc">RC <span class="hint">(Collector resistor)</span></label>
@@ -89,6 +120,7 @@
               </div>
             </div>
 
+            {% if mode != 'fixed' %}
             <div class="field">
               <label for="re">RE <span class="hint">(Emitter resistor)</span></label>
               <div class="input-row">
@@ -100,6 +132,7 @@
                 </select>
               </div>
             </div>
+            {% endif %}
 
             <div class="field">
               <label for="beta">β (Beta) <span class="hint">(DC current gain / อัตราขยายกระแส)</span></label>
@@ -126,7 +159,7 @@
         <section class="card">
           <h2>Circuit Diagram / แผนผังวงจร</h2>
           <div class="circuit-wrap">
-            <svg viewBox="0 0 420 360" class="circuit" aria-label="NPN common-emitter voltage-divider bias circuit">
+            <svg viewBox="0 0 420 360" class="circuit" aria-label="NPN common-emitter {{ mode_labels[mode] }} circuit">
               <defs>
                 <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
                   <path d="M0,0 L0,6 L6,3 z" fill="#334155" />
@@ -139,25 +172,36 @@
               <line x1="180" y1="340" x2="220" y2="340" stroke="#334155" stroke-width="2" />
               <line x1="188" y1="348" x2="212" y2="348" stroke="#334155" stroke-width="2" />
               <line x1="196" y1="356" x2="204" y2="356" stroke="#334155" stroke-width="2" />
-              <!-- R1 -->
+
+              {% if mode == 'divider' %}
+              <!-- R1 / R2 divider network -->
               <line x1="120" y1="40" x2="120" y2="90" stroke="#334155" stroke-width="2" />
               <polyline points="120,90 110,100 130,115 110,130 130,145 110,160 130,175 120,185" fill="none" stroke="#334155" stroke-width="2" />
               <line x1="120" y1="185" x2="120" y2="210" stroke="#334155" stroke-width="2" />
               <text x="78" y="140" class="svg-label">R1</text>
               <text x="78" y="156" class="svg-small">{{ inp.get('r1','-') }} {{ inp.get('r1_unit','') }}</text>
-              <!-- R2 -->
               <line x1="120" y1="210" x2="120" y2="230" stroke="#334155" stroke-width="2" />
               <polyline points="120,230 110,240 130,255 110,270 130,285 110,300 130,315 120,325" fill="none" stroke="#334155" stroke-width="2" />
               <line x1="120" y1="325" x2="120" y2="340" stroke="#334155" stroke-width="2" />
               <line x1="120" y1="340" x2="200" y2="340" stroke="#334155" stroke-width="2" />
               <text x="78" y="275" class="svg-label">R2</text>
               <text x="78" y="291" class="svg-small">{{ inp.get('r2','-') }} {{ inp.get('r2_unit','') }}</text>
+              {% else %}
+              <!-- single base resistor RB -->
+              <line x1="120" y1="40" x2="120" y2="90" stroke="#334155" stroke-width="2" />
+              <polyline points="120,90 110,100 130,115 110,130 130,145 110,160 130,175 120,185" fill="none" stroke="#334155" stroke-width="2" />
+              <line x1="120" y1="185" x2="120" y2="220" stroke="#334155" stroke-width="2" />
+              <text x="78" y="140" class="svg-label">RB</text>
+              <text x="78" y="156" class="svg-small">{{ inp.get('rb','-') }} {{ inp.get('rb_unit','') }}</text>
+              {% endif %}
+
               <!-- RC -->
               <line x1="260" y1="40" x2="260" y2="90" stroke="#334155" stroke-width="2" />
               <polyline points="260,90 250,100 270,115 250,130 270,145 250,160 270,175 260,185" fill="none" stroke="#334155" stroke-width="2" />
               <line x1="260" y1="185" x2="260" y2="210" stroke="#334155" stroke-width="2" />
               <text x="282" y="140" class="svg-label">RC</text>
               <text x="282" y="156" class="svg-small">{{ inp.get('rc','-') }} {{ inp.get('rc_unit','') }}</text>
+
               <!-- NPN transistor -->
               <circle cx="230" cy="220" r="34" fill="none" stroke="#334155" stroke-width="2" />
               <line x1="220" y1="195" x2="220" y2="245" stroke="#334155" stroke-width="3" />
@@ -169,17 +213,29 @@
               <text x="170" y="212" class="svg-small">B</text>
               <text x="248" y="178" class="svg-small">C</text>
               <text x="248" y="270" class="svg-small">E</text>
-              <!-- RE -->
+
+              {% if mode == 'fixed' %}
+              <!-- emitter grounded directly (no RE) -->
+              <line x1="260" y1="255" x2="260" y2="340" stroke="#334155" stroke-width="2" />
+              <line x1="260" y1="340" x2="200" y2="340" stroke="#334155" stroke-width="2" />
+              {% else %}
+              <!-- emitter resistor RE -->
               <line x1="260" y1="255" x2="260" y2="275" stroke="#334155" stroke-width="2" />
               <polyline points="260,275 250,285 270,300 250,315 270,330 250,345 270,360 260,370" fill="none" stroke="#334155" stroke-width="2" transform="translate(0,-35)" />
               <line x1="260" y1="335" x2="260" y2="340" stroke="#334155" stroke-width="2" />
               <line x1="260" y1="340" x2="200" y2="340" stroke="#334155" stroke-width="2" />
               <text x="282" y="305" class="svg-label">RE</text>
               <text x="282" y="321" class="svg-small">{{ inp.get('re','-') }} {{ inp.get('re_unit','') }}</text>
-              <!-- node dots -->
+              {% endif %}
+
+              <!-- node dots at real junctions only -->
+              {% if mode == 'divider' %}
               <circle cx="120" cy="210" r="3" fill="#334155" />
+              {% endif %}
               <circle cx="260" cy="210" r="3" fill="#334155" />
+              {% if mode != 'fixed' %}
               <circle cx="260" cy="255" r="3" fill="#334155" />
+              {% endif %}
               <text x="330" y="70" class="svg-small">β={{ inp.get('beta','-') }}</text>
               <text x="330" y="86" class="svg-small">VBE={{ inp.get('vbe','-') }} V</text>
             </svg>
@@ -187,7 +243,7 @@
         </section>
 
         <section class="card">
-          <h2>DC Bias Results / ผลลัพธ์จุดทำงาน DC</h2>
+          <h2>DC Bias Results / ผลลัพธ์จุดทำงาน DC — {{ mode_labels[mode] }}</h2>
           {% if results %}
           <table class="results-table">
             <tbody>
@@ -218,7 +274,7 @@
     </main>
 
     <footer class="site-footer">
-      <strong>Week 2 Goal:</strong> Flask Web App for BJT DC Bias (Voltage Divider) — form input → Python backend calculation → display VB, VE, VC, VCE, IC, IB, IE with Operating Region and warnings.
+      <strong>Week 3 Goal:</strong> Flask Web App for BJT DC Bias (Divider / Fixed / Emitter) — form input → Python backend calculation → display VB, VE, VC, VCE, IC, IB, IE with Operating Region and warnings.
     </footer>
   </body>
 </html>

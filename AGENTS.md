@@ -1,4 +1,4 @@
-# AGENTS.md — Lab 02 BJT DC Bias Web App
+# AGENTS.md — Lab 03 BJT DC Bias Web App
 
 ## Architecture rules
 - `dc_bias.py`: pure engineering logic only (math, validation helpers, region/warnings). **No Flask, no HTML, no request/response objects.**

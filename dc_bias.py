@@ -1,10 +1,12 @@
-"""DC bias calculations for NPN common-emitter voltage-divider bias (Lab 02).
+"""DC bias calculations for NPN common-emitter circuits (Lab 02 and Lab 03).
 
 Engineering logic only: no Flask/HTML dependencies.
 
 Model assumptions: NPN transistor, Forward-Active approximation with constant
 beta and constant VBE. Results outside these assumptions are flagged.
 """
+
+import math
 
 SATURATION_VCE_THRESHOLD = 0.2  # volts, approximate boundary for this lab model
 
@@ -73,6 +75,66 @@ def calculate_dc_bias(vcc, r1, r2, rc, re, beta, vbe=0.7):
     }
 
 
+def _classify_region(ib, ic, vce):
+    """Classify the operating region for fixed and emitter bias circuits."""
+    warnings = []
+    if ib <= 0 or ic <= 0:
+        region = "cutoff"
+        warnings.append(
+            "Cutoff region detected (non-forward base-emitter bias or zero collector current). "
+            "Forward-Active approximation is not valid; results are not trustworthy."
+        )
+    elif vce <= SATURATION_VCE_THRESHOLD:
+        region = "saturation"
+        warnings.append(
+            "Saturation region detected (VCE is at or below the active-region boundary). "
+            "Forward-Active approximation is not valid; results are not trustworthy."
+        )
+    else:
+        region = "active"
+    return region, warnings
+
+
+def calculate_fixed_bias(vcc, rb, rc, beta, vbe=0.7):
+    """Calculate DC operating point for fixed bias with emitter grounded."""
+    vcc, rb, rc, beta, vbe = map(float, (vcc, rb, rc, beta, vbe))
+
+    ib = (vcc - vbe) / rb
+    ic = beta * ib
+    ie = (beta + 1.0) * ib
+    ve = 0.0
+    vb = ve + vbe
+    vc = vcc - ic * rc
+    vce = vc - ve
+    region, warnings = _classify_region(ib, ic, vce)
+
+    return {
+        "ib": ib, "ic": ic, "ie": ie,
+        "vb": vb, "ve": ve, "vc": vc, "vce": vce,
+        "region": region, "warnings": warnings,
+    }
+
+
+def calculate_emitter_bias(vcc, rb, rc, re, beta, vbe=0.7):
+    """Calculate DC operating point for single-supply emitter bias."""
+    vcc, rb, rc, re, beta, vbe = map(float, (vcc, rb, rc, re, beta, vbe))
+
+    ib = (vcc - vbe) / (rb + (beta + 1.0) * re)
+    ic = beta * ib
+    ie = (beta + 1.0) * ib
+    ve = ie * re
+    vb = ve + vbe
+    vc = vcc - ic * rc
+    vce = vc - ve
+    region, warnings = _classify_region(ib, ic, vce)
+
+    return {
+        "ib": ib, "ic": ic, "ie": ie,
+        "vb": vb, "ve": ve, "vc": vc, "vce": vce,
+        "region": region, "warnings": warnings,
+    }
+
+
 def validate_dc_inputs(values):
     """Validate and parse DC bias inputs.
 
@@ -105,6 +167,9 @@ def validate_dc_inputs(values):
         except (TypeError, ValueError):
             errors.append({"field": key, "message": f"{label} must be a number."})
             continue
+        if not math.isfinite(num):
+            errors.append({"field": key, "message": f"{label} must be a finite number."})
+            continue
         if must_be_positive and num <= 0:
             errors.append({"field": key, "message": f"{label} must be greater than 0."})
             continue
@@ -113,6 +178,44 @@ def validate_dc_inputs(values):
             continue
         clean[key] = num
 
+    if errors:
+        return None, errors
+    return clean, []
+
+
+MODE_REQUIRED_FIELDS = {
+    "fixed": ("vcc", "rb", "rc", "beta", "vbe"),
+    "emitter": ("vcc", "rb", "rc", "re", "beta", "vbe"),
+}
+
+
+def validate_mode_inputs(values, mode):
+    """Validate only the inputs required by the selected circuit mode."""
+    if mode == "divider":
+        return validate_dc_inputs(values)
+    if mode not in MODE_REQUIRED_FIELDS:
+        return None, [{"field": "mode", "message": f"Unknown circuit mode: {mode}."}]
+
+    labels = {"vcc": "VCC", "rb": "RB", "rc": "RC", "re": "RE", "beta": "beta", "vbe": "VBE"}
+    errors = []
+    clean = {}
+    for key in MODE_REQUIRED_FIELDS[mode]:
+        raw = values.get(key, "")
+        if str(raw).strip() == "":
+            errors.append({"field": key, "message": f"{labels[key]} is required."})
+            continue
+        try:
+            num = float(raw)
+        except (TypeError, ValueError):
+            errors.append({"field": key, "message": f"{labels[key]} must be a number."})
+            continue
+        if not math.isfinite(num):
+            errors.append({"field": key, "message": f"{labels[key]} must be a finite number."})
+            continue
+        if num <= 0:
+            errors.append({"field": key, "message": f"{labels[key]} must be greater than 0."})
+            continue
+        clean[key] = num
     if errors:
         return None, errors
     return clean, []
