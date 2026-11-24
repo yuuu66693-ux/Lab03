@@ -63,6 +63,41 @@ class TestValidateSimInputs(unittest.TestCase):
         self.assertIn("rl", [e["field"] for e in errors])
 
 
+class TestBuildNetlist(unittest.TestCase):
+    def test_dc_netlist_uses_reference_components_and_op(self):
+        netlist = spice_engine.build_netlist(reference_params(), "dc")
+
+        self.assertIn("VCC vcc 0 12", netlist)
+        self.assertIn("R1 vcc base 100000", netlist)
+        self.assertIn("R2 base 0 22000", netlist)
+        self.assertIn("RC vcc col 2200", netlist)
+        self.assertIn("RE emit 0 1000", netlist)
+        self.assertIn("Q1 col base emit Q2N3904", netlist)
+        self.assertIn("CIN in base 1e-05", netlist)
+        self.assertIn("RL out 0 10000", netlist)
+        self.assertIn(".model Q2N3904 NPN", netlist)
+        self.assertIn(".op", netlist)
+        self.assertIn(".print op v(base) v(emit) v(col)", netlist)
+
+    def test_ac_netlist_sets_sweep_and_gain_vectors(self):
+        netlist = spice_engine.build_netlist(reference_params(), "ac")
+
+        self.assertIn("VIN in 0 DC 0 AC 1 SIN(0 0.01 1000)", netlist)
+        self.assertIn(".ac dec 20 10 10meg", netlist)
+        self.assertIn(".print ac vdb(out) vp(out) vdb(in) vp(in)", netlist)
+        self.assertNotIn(".op", netlist)
+
+    def test_tran_netlist_sets_window_and_waveforms(self):
+        netlist = spice_engine.build_netlist(reference_params(), "tran")
+
+        self.assertIn(".tran 5e-06 0.005", netlist)
+        self.assertIn(".print tran v(in) v(out)", netlist)
+
+    def test_unknown_analysis_is_rejected(self):
+        with self.assertRaises(ValueError):
+            spice_engine.build_netlist(reference_params(), "fft")
+
+
 class TestEngineDiscovery(unittest.TestCase):
     def test_returns_none_when_no_engine_is_available(self):
         with mock.patch.dict("os.environ", {}, clear=True), \

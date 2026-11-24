@@ -103,6 +103,51 @@ def engine_info():
     }
 
 
+def _num(value):
+    """Format a number for a SPICE netlist without exponent padding noise."""
+    return f"{float(value):.10g}"
+
+
+def _tran_window(freq_hz):
+    period = 1.0 / freq_hz
+    stop = min(max(5.0 * period, 0.001), 0.020)
+    step = max(period / 200.0, 5e-6)
+    return step, stop
+
+
+def build_netlist(params, analysis):
+    """Build the reference CE amplifier netlist for one analysis mode."""
+    if analysis not in ("dc", "ac", "tran"):
+        raise ValueError(f"Unknown analysis: {analysis}")
+
+    lines = [
+        "* Lab 04 CE voltage-divider reference amplifier",
+        f"VCC vcc 0 {_num(params['vcc'])}",
+        f"R1 vcc base {_num(params['r1'])}",
+        f"R2 base 0 {_num(params['r2'])}",
+        f"RC vcc col {_num(params['rc'])}",
+        f"RE emit 0 {_num(params['re'])}",
+        "Q1 col base emit Q2N3904",
+        f"CIN in base {_num(params['cin_f'])}",
+        f"VIN in 0 DC 0 AC 1 SIN(0 {_num(params['amp_v'])} {_num(params['freq_hz'])})",
+        f"COUT col out {_num(params['cout_f'])}",
+        f"RL out 0 {_num(params['rl'])}",
+        MODEL_CARD,
+    ]
+    if analysis == "dc":
+        lines.append(".op")
+        lines.append(".print op v(base) v(emit) v(col) i(vcc) @rc[i] @re[i]")
+    elif analysis == "ac":
+        lines.append(".ac dec 20 10 10meg")
+        lines.append(".print ac vdb(out) vp(out) vdb(in) vp(in)")
+    else:
+        step, stop = _tran_window(params["freq_hz"])
+        lines.append(f".tran {_num(step)} {_num(stop)}")
+        lines.append(".print tran v(in) v(out)")
+    lines.append(".end")
+    return "\n".join(lines) + "\n"
+
+
 def validate_sim_inputs(values):
     """Validate simulator inputs supplied in SI units.
 
