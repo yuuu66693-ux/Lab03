@@ -12,3 +12,5 @@ instance/
 *.egg-info/
 dist/
 build/
+
+.superpowers/
