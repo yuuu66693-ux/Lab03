@@ -175,3 +175,100 @@ def validate_sim_inputs(values):
     if errors:
         return None, errors
     return clean, []
+
+
+def parse_print_tables(log):
+    """Parse every ``.print`` table in an ngspice log.
+
+    ngspice paginates long tables and may print several tables (one per
+    vector group); headers repeat and the row index continues. Rows are
+    merged on the index so each analysis point is one record.
+    """
+    tables = []
+    current = None
+    for raw in (log or "").splitlines():
+        line = raw.strip()
+        if line.startswith("Index"):
+            current = {"columns": line.split()[1:], "rows": {}}
+            tables.append(current)
+            continue
+        if current is None or not line:
+            continue
+        if set(line) <= {"-"}:
+            continue
+        parts = line.split()
+        if not parts[0].isdigit():
+            current = None
+            continue
+        try:
+            index = int(parts[0])
+            values = [float(value) for value in parts[1:]]
+        except ValueError:
+            current = None
+            continue
+        current["rows"][index] = values
+
+    merged = {}
+    for table in tables:
+        for index, values in table["rows"].items():
+            record = merged.setdefault(index, {})
+            for column, value in zip(table["columns"], values):
+                record[column] = value
+    if not merged:
+        raise ValueError("No ngspice print tables found in the run log.")
+    return [merged[index] for index in sorted(merged)]
+
+
+def _require(row, key):
+    if key not in row:
+        raise ValueError(f"Expected column {key!r} in the ngspice output.")
+    return row[key]
+
+
+def parse_op(log):
+    """Return the DC operating point from a ``.print op`` table."""
+    row = parse_print_tables(log)[0]
+    vb = _require(row, "v(base)")
+    ve = _require(row, "v(emit)")
+    vc = _require(row, "v(col)")
+    ic = _require(row, "@rc[i]")
+    ie = _require(row, "@re[i]")
+    return {
+        "vb": vb,
+        "ve": ve,
+        "vc": vc,
+        "vce": vc - ve,
+        "ic": ic,
+        "ie": ie,
+        "ib": ie - ic,
+    }
+
+
+def _wrap_degrees(angle):
+    return ((angle + 180.0) % 360.0) - 180.0
+
+
+def parse_ac(log):
+    """Return frequency, gain in dB, and phase in degrees from ``.print ac``."""
+    rows = []
+    for row in parse_print_tables(log):
+        gain_db = _require(row, "vdb(out)") - row.get("vdb(in)", 0.0)
+        phase_deg = math.degrees(_require(row, "vp(out)") - row.get("vp(in)", 0.0))
+        rows.append({
+            "frequency_hz": _require(row, "frequency"),
+            "gain_db": gain_db,
+            "phase_deg": _wrap_degrees(phase_deg),
+        })
+    return rows
+
+
+def parse_tran(log):
+    """Return time, input, and output waveforms from ``.print tran``."""
+    return [
+        {
+            "time_s": _require(row, "time"),
+            "vin_v": _require(row, "v(in)"),
+            "vout_v": _require(row, "v(out)"),
+        }
+        for row in parse_print_tables(log)
+    ]

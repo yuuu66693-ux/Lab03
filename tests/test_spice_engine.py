@@ -98,6 +98,93 @@ class TestBuildNetlist(unittest.TestCase):
             spice_engine.build_netlist(reference_params(), "fft")
 
 
+OP_LOG = """\
+                               ce reference probe
+                               Operating Point  Tue Nov 24 17:21:44  2026
+--------------------------------------------------------------------------------
+Index   v(base)         v(emit)         v(col)          vcc#branch      
+--------------------------------------------------------------------------------
+0\t2.003668e+00\t1.332961e+00\t9.087039e+00\t-1.42404e-03\t
+
+                               ce reference probe
+                               Operating Point  Tue Nov 24 17:21:44  2026
+--------------------------------------------------------------------------------
+Index   @rc[i]          @re[i]          
+--------------------------------------------------------------------------------
+0\t1.324073e-03\t1.332961e-03\t
+"""
+
+AC_LOG = """\
+                               ce reference probe
+                               AC Analysis  Tue Nov 24 17:22:03  2026
+--------------------------------------------------------------------------------
+Index   frequency       vdb(out)        vp(out)         
+--------------------------------------------------------------------------------
+0\t1.000000e+01\t4.775540e+00\t-2.91434e+00\t
+1\t1.122018e+01\t4.798978e+00\t-2.93887e+00\t
+
+Index   frequency       vdb(out)        vp(out)         
+--------------------------------------------------------------------------------
+2\t1.258925e+01\t4.817644e+00\t-2.96078e+00\t
+3\t1.000000e+03\t4.890131e+00\t-3.13931e+00\t
+
+Index   frequency       vdb(in)         vp(in)          
+--------------------------------------------------------------------------------
+0\t1.000000e+01\t0.000000e+00\t0.000000e+00\t
+1\t1.122018e+01\t0.000000e+00\t0.000000e+00\t
+2\t1.258925e+01\t0.000000e+00\t0.000000e+00\t
+3\t1.000000e+03\t0.000000e+00\t0.000000e+00\t
+"""
+
+TRAN_LOG = """\
+                               ce reference probe
+                               Transient Analysis  Tue Nov 24 17:22:10  2026
+--------------------------------------------------------------------------------
+Index   time            v(in)           v(out)          
+--------------------------------------------------------------------------------
+0\t0.000000e+00\t0.000000e+00\t0.000000e+00\t
+1\t5.000000e-08\t3.141593e-06\t-7.18241e-06\t
+
+Index   time            v(in)           v(out)          
+--------------------------------------------------------------------------------
+55\t2.414000e-04\t9.985404e-03\t-1.74985e-02\t
+56\t2.464000e-04\t9.997442e-03\t-1.75184e-02\t
+"""
+
+
+class TestParsePrintTables(unittest.TestCase):
+    def test_parse_op_merges_tables_and_derives_vce(self):
+        result = spice_engine.parse_op(OP_LOG)
+
+        self.assertAlmostEqual(result["vb"], 2.003668, places=6)
+        self.assertAlmostEqual(result["ve"], 1.332961, places=6)
+        self.assertAlmostEqual(result["vc"], 9.087039, places=6)
+        self.assertAlmostEqual(result["vce"], 7.754078, places=6)
+        self.assertAlmostEqual(result["ic"], 1.324073e-03, places=9)
+        self.assertAlmostEqual(result["ie"], 1.332961e-03, places=9)
+        self.assertAlmostEqual(result["ib"], 8.888e-06, places=9)
+
+    def test_parse_ac_merges_pages_and_converts_phase_to_degrees(self):
+        rows = spice_engine.parse_ac(AC_LOG)
+
+        self.assertEqual([r["frequency_hz"] for r in rows], [10.0, 11.22018, 12.58925, 1000.0])
+        self.assertAlmostEqual(rows[0]["gain_db"], 4.77554, places=5)
+        self.assertAlmostEqual(rows[0]["phase_deg"], -166.98, places=1)
+        self.assertAlmostEqual(rows[3]["phase_deg"], -179.87, places=1)
+
+    def test_parse_tran_merges_paginated_tables(self):
+        rows = spice_engine.parse_tran(TRAN_LOG)
+
+        self.assertEqual(len(rows), 4)
+        self.assertAlmostEqual(rows[2]["time_s"], 2.414e-4, places=9)
+        self.assertAlmostEqual(rows[3]["vin_v"], 9.997442e-03, places=9)
+        self.assertAlmostEqual(rows[3]["vout_v"], -1.75184e-02, places=9)
+
+    def test_parse_rejects_log_without_tables(self):
+        with self.assertRaises(ValueError):
+            spice_engine.parse_print_tables("ngspice-47\nno tables here\n")
+
+
 class TestEngineDiscovery(unittest.TestCase):
     def test_returns_none_when_no_engine_is_available(self):
         with mock.patch.dict("os.environ", {}, clear=True), \
