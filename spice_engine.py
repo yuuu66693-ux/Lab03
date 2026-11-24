@@ -11,6 +11,8 @@ import math
 import os
 import shutil
 import subprocess
+import tempfile
+import time
 
 MODEL_NAME = "2N3904"
 MODEL_CARD = (
@@ -272,3 +274,111 @@ def parse_tran(log):
         }
         for row in parse_print_tables(log)
     ]
+
+
+PARSERS = {"dc": parse_op, "ac": parse_ac, "tran": parse_tran}
+
+
+def _failure(analysis, kind, message, netlist="", log="", started=None):
+    return {
+        "ok": False,
+        "analysis": analysis,
+        "rows": None,
+        "engine": None,
+        "netlist": netlist,
+        "log": log,
+        "duration_s": round(time.monotonic() - started, 3) if started else 0.0,
+        "error": {"kind": kind, "message": message},
+    }
+
+
+def run_analysis(params, analysis, timeout=20.0):
+    """Run one ngspice analysis in a throwaway directory.
+
+    Returns a dict with ``ok``, ``rows`` (parsed output), ``engine``,
+    ``netlist``, ``log``, ``duration_s``, and ``error``. Never raises for
+    engine, process, timeout, or parse problems.
+    """
+    started = time.monotonic()
+    exe = find_engine()
+    if not exe:
+        return _failure(
+            analysis,
+            "engine_missing",
+            engine_info()["message"],
+            started=started,
+        )
+
+    netlist = build_netlist(params, analysis)
+    workdir = tempfile.mkdtemp(prefix="lab04-spice-")
+    netlist_path = os.path.join(workdir, "circuit.cir")
+    log_path = os.path.join(workdir, "run.log")
+    log_text = ""
+    try:
+        with open(netlist_path, "w", encoding="ascii", errors="replace") as handle:
+            handle.write(netlist)
+
+        try:
+            proc = subprocess.run(
+                [exe, "-b", "-o", log_path, netlist_path],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                shell=False,
+            )
+        except subprocess.TimeoutExpired:
+            return _failure(
+                analysis,
+                "timeout",
+                f"ngspice did not finish within {timeout:.0f} s.",
+                netlist,
+                started=started,
+            )
+        except OSError as exc:
+            return _failure(
+                analysis,
+                "engine_missing",
+                f"Could not start ngspice: {exc}",
+                netlist,
+                started=started,
+            )
+
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                log_text = handle.read()
+
+        if proc.returncode != 0:
+            tail = (log_text or proc.stderr or "").strip().splitlines()[-3:]
+            return _failure(
+                analysis,
+                "run_failed",
+                f"ngspice exited with code {proc.returncode}. " + " ".join(tail),
+                netlist,
+                log_text,
+                started,
+            )
+
+        try:
+            rows = PARSERS[analysis](log_text)
+        except ValueError as exc:
+            return _failure(
+                analysis,
+                "parse_failed",
+                f"Could not read ngspice output: {exc}",
+                netlist,
+                log_text,
+                started,
+            )
+
+        return {
+            "ok": True,
+            "analysis": analysis,
+            "rows": rows,
+            "engine": exe,
+            "netlist": netlist,
+            "log": log_text,
+            "duration_s": round(time.monotonic() - started, 3),
+            "error": None,
+        }
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)

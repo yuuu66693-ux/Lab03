@@ -1,4 +1,7 @@
+import os
+import subprocess
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import spice_engine
@@ -183,6 +186,74 @@ class TestParsePrintTables(unittest.TestCase):
     def test_parse_rejects_log_without_tables(self):
         with self.assertRaises(ValueError):
             spice_engine.parse_print_tables("ngspice-47\nno tables here\n")
+
+
+class TestRunAnalysis(unittest.TestCase):
+    def _fake_run_writing(self, log_text, returncode=0):
+        def fake_run(args, **kwargs):
+            log_path = args[args.index("-o") + 1]
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(log_text)
+            return SimpleNamespace(returncode=returncode, stdout="", stderr="")
+        return fake_run
+
+    def test_missing_engine_returns_structured_error(self):
+        with mock.patch.object(spice_engine, "find_engine", return_value=None):
+            result = spice_engine.run_analysis(reference_params(), "dc")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["kind"], "engine_missing")
+        self.assertIn("ngspice", result["error"]["message"])
+
+    def test_timeout_is_reported(self):
+        with mock.patch.object(spice_engine, "find_engine", return_value="ngspice_con"), \
+                mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ngspice_con", 20)):
+            result = spice_engine.run_analysis(reference_params(), "dc")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["kind"], "timeout")
+
+    def test_non_zero_exit_is_reported(self):
+        with mock.patch.object(spice_engine, "find_engine", return_value="ngspice_con"), \
+                mock.patch("subprocess.run", side_effect=self._fake_run_writing("boom", 1)):
+            result = spice_engine.run_analysis(reference_params(), "dc")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["kind"], "run_failed")
+
+    def test_unparseable_success_is_parse_failure(self):
+        with mock.patch.object(spice_engine, "find_engine", return_value="ngspice_con"), \
+                mock.patch("subprocess.run", side_effect=self._fake_run_writing("no tables")):
+            result = spice_engine.run_analysis(reference_params(), "dc")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["kind"], "parse_failed")
+
+    def test_success_uses_safe_subprocess_and_cleans_temp_dir(self):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append((args, kwargs))
+            log_path = args[args.index("-o") + 1]
+            with open(log_path, "w", encoding="utf-8") as handle:
+                handle.write(OP_LOG)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(spice_engine, "find_engine", return_value="ngspice_con"), \
+                mock.patch("subprocess.run", side_effect=fake_run):
+            result = spice_engine.run_analysis(reference_params(), "dc")
+
+        self.assertTrue(result["ok"])
+        self.assertAlmostEqual(result["rows"]["vb"], 2.003668, places=6)
+        self.assertIn(".op", result["netlist"])
+        self.assertGreaterEqual(result["duration_s"], 0.0)
+
+        args, kwargs = calls[0]
+        self.assertIsInstance(args, list)
+        self.assertFalse(kwargs.get("shell", False))
+        self.assertEqual(kwargs.get("timeout"), 20.0)
+        workdir = os.path.dirname(args[args.index("-o") + 1])
+        self.assertFalse(os.path.exists(workdir))
 
 
 class TestEngineDiscovery(unittest.TestCase):
