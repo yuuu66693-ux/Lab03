@@ -51,6 +51,18 @@ SIM_FIELDS = {
 ENGINE_NAMES = ("ngspice_con", "ngspice")
 
 
+def _common_windows_paths():
+    local = os.environ.get("LOCALAPPDATA")
+    candidates = []
+    if local:
+        candidates.append(os.path.join(local, "Programs", "Spice64", "bin", "ngspice_con.exe"))
+    candidates.extend([
+        r"C:\Spice64\bin\ngspice_con.exe",
+        r"C:\Program Files\Spice64\bin\ngspice_con.exe",
+    ])
+    return candidates
+
+
 def find_engine():
     """Return the ngspice executable path, or None when unavailable.
 
@@ -65,6 +77,9 @@ def find_engine():
         found = shutil.which(name)
         if found:
             return found
+    for candidate in _common_windows_paths():
+        if os.path.isfile(candidate):
+            return candidate
     return None
 
 

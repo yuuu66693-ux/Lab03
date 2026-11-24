@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Lab 03 — BJT DC Bias Calculator</title>
+    <title>Lab 04 — BJT CE Amplifier Simulator</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body>
@@ -13,7 +13,7 @@
         <div class="brand">⚡</div>
         <div>
           <div class="course">Computer Programming for Electrical Engineers</div>
-          <h1>BJT DC Bias Calculator <span class="sub">({{ mode_labels[mode] }})</span></h1>
+          <h1>BJT Amplifier Lab <span class="sub">(DC Bias · SPICE DC / AC / Transient)</span></h1>
         </div>
       </div>
     </header>
@@ -271,10 +271,185 @@
           {% endif %}
         </section>
       </div>
+
+      {% macro chart_svg(chart) %}
+      <svg class="chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="ngspice simulation chart">
+        <rect class="chart-bg" x="48" y="18" width="{{ chart.width - 66 }}" height="{{ chart.height - 54 }}" />
+        {% for tick in chart.x_ticks %}
+        <line class="chart-grid" x1="{{ tick.pos }}" y1="18" x2="{{ tick.pos }}" y2="{{ chart.height - 36 }}" />
+        <text class="chart-label" x="{{ tick.pos }}" y="{{ chart.height - 16 }}" text-anchor="middle">{{ tick.label }}</text>
+        {% endfor %}
+        {% for tick in chart.series[0].y_ticks %}
+        <line class="chart-grid" x1="48" y1="{{ tick.pos }}" x2="{{ chart.width - 18 }}" y2="{{ tick.pos }}" />
+        <text class="chart-label" x="42" y="{{ tick.pos + 4 }}" text-anchor="end">{{ tick.label }}</text>
+        {% endfor %}
+        {% for series in chart.series %}
+        <polyline points="{{ series.points }}" fill="none" stroke="{{ series.color }}" stroke-width="2" stroke-linejoin="round" />
+        {% endfor %}
+        <text class="chart-axis-title" x="{{ chart.width - 18 }}" y="{{ chart.height - 16 }}" text-anchor="end">{{ chart.x_label }}</text>
+        <g class="chart-legend">
+          {% for series in chart.series %}
+          <circle cx="{{ 60 + loop.index0 * 120 }}" cy="12" r="5" fill="{{ series.color }}" />
+          <text x="{{ 70 + loop.index0 * 120 }}" y="16">{{ series.name }} ({{ series.unit }})</text>
+          {% endfor %}
+        </g>
+      </svg>
+      {% endmacro %}
+
+      <section class="card sim-card" id="simulation">
+        <div class="sim-head">
+          <div>
+            <p class="kicker">LAB 04 · REAL NGSPICE</p>
+            <h2>CE Amplifier Simulator <span class="sub">(Voltage Divider Reference)</span></h2>
+          </div>
+          <div class="engine-chip {% if sim.engine.available %}engine-ok{% else %}engine-missing{% endif %}">
+            {% if sim.engine.available %}
+            Engine: {{ sim.engine.version or 'ngspice' }} · Model: {{ sim.model }}
+            {% else %}
+            Engine: ngspice not available
+            {% endif %}
+          </div>
+        </div>
+
+        {% if sim.errors %}
+        <section class="alert alert-error" role="alert">
+          <h2>Simulation Error / จำลองไม่สำเร็จ</h2>
+          <ul>
+            {% for e in sim.errors %}
+            <li><strong>{{ e.field or "input" }}:</strong> {{ e.message }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+        {% endif %}
+
+        <form method="post" action="/simulate" class="form-grid sim-form" novalidate>
+          <div class="field">
+            <label for="analysis">Analysis Mode / โหมดวิเคราะห์</label>
+            <select id="analysis" name="analysis">
+              {% for mode_key in sim.modes %}
+              <option value="{{ mode_key }}" {% if sim.analysis == mode_key %}selected{% endif %}>{{ sim.labels[mode_key] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {% for key, label, unit in [
+            ('vcc', 'VCC', None),
+            ('r1', 'R1', 'res'),
+            ('r2', 'R2', 'res'),
+            ('rc', 'RC', 'res'),
+            ('re', 'RE', 'res'),
+            ('rl', 'RL (load)', 'res')
+          ] %}
+          <div class="field">
+            <label for="sim_{{ key }}">{{ label }}</label>
+            <div class="input-row">
+              <input id="sim_{{ key }}" name="sim_{{ key }}" type="number" step="any" value="{{ sim.inputs.get('sim_' ~ key, '') }}" required />
+              {% if unit == 'res' %}
+              <select name="sim_{{ key }}_unit" aria-label="{{ label }} unit">
+                {% for u in ['Ω', 'kΩ', 'MΩ'] %}
+                <option value="{{ u }}" {% if sim.inputs.get('sim_' ~ key ~ '_unit', 'kΩ') == u %}selected{% endif %}>{{ u }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <span class="unit">V</span>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+
+          <div class="field">
+            <label for="sim_cin">C<sub>in</sub></label>
+            <div class="input-row">
+              <input id="sim_cin" name="sim_cin" type="number" step="any" value="{{ sim.inputs.get('sim_cin', '') }}" required />
+              <span class="unit">µF</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sim_cout">C<sub>out</sub></label>
+            <div class="input-row">
+              <input id="sim_cout" name="sim_cout" type="number" step="any" value="{{ sim.inputs.get('sim_cout', '') }}" required />
+              <span class="unit">µF</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sim_amp">Source Amplitude / แอมพลิจูด</label>
+            <div class="input-row">
+              <input id="sim_amp" name="sim_amp" type="number" step="any" value="{{ sim.inputs.get('sim_amp', '') }}" required />
+              <span class="unit">mV peak</span>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sim_freq">Source Frequency / ความถี่</label>
+            <div class="input-row">
+              <input id="sim_freq" name="sim_freq" type="number" step="any" value="{{ sim.inputs.get('sim_freq', '') }}" required />
+              <span class="unit">Hz</span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn-primary">Run simulation / จำลองด้วย ngspice</button>
+          </div>
+        </form>
+        <p class="note">Circuit: NPN common-emitter, voltage-divider bias, unbypassed RE, Cin/Cout coupling, RL load. Engine runs as an external process; values are SI inside Python.</p>
+
+        {% if sim.result and sim.result.ok %}
+        <div class="sim-status sim-ok">
+          <strong>Simulation succeeded</strong>
+          <span>{{ sim.result.analysis|upper }} · {{ sim.result.engine }} · {{ sim.model }} · {{ sim.result.duration_s }} s</span>
+        </div>
+
+        {% if sim.comparison %}
+        <h3>DC Operating Point — SPICE vs Analytical</h3>
+        <table class="results-table compare-table">
+          <thead>
+            <tr><th>Quantity</th><th>SPICE (ngspice)</th><th>Analytical (Lab 03)</th><th>Unit</th></tr>
+          </thead>
+          <tbody>
+            {% for row in sim.comparison %}
+            <tr><td>{{ row.label }}</td><td>{{ row.spice }}</td><td>{{ row.analytical }}</td><td>{{ row.unit }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="note">Analytical column uses constant β = 100 and VBE = 0.70 V (Lab 03 model). SPICE uses the {{ sim.model }} model card, so the two sets are not expected to agree to every digit.</p>
+        {% endif %}
+
+        {% if sim.summary %}
+        <h3>{{ sim.summary.title }}</h3>
+        <div class="summary-grid">
+          {% for item in sim.summary['items'] %}
+          <div class="tile"><b>{{ item.label }}</b>{{ item.value }} {{ item.unit }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if sim.chart %}
+        {% if sim.chart.empty %}
+        <p class="alert alert-warning">Simulation returned no points to plot.</p>
+        {% else %}
+        <h3>{% if sim.analysis == 'ac' %}Bode Response{% else %}Waveforms{% endif %}</h3>
+        {{ chart_svg(sim.chart) }}
+        {% if sim.analysis == 'ac' %}
+        <p class="note">Gain is |Vout/Vin| in dB with the source node <code>in</code> as reference; phase is wrapped to ±180°.</p>
+        {% else %}
+        <p class="note">Vin and Vout share the same time axis; the output is inverted relative to the input for this inverting amplifier.</p>
+        {% endif %}
+        {% endif %}
+        {% endif %}
+
+        <details class="netlist">
+          <summary>Netlist used for this run</summary>
+          <pre>{{ sim.result.netlist }}</pre>
+        </details>
+        <details class="netlist">
+          <summary>ngspice log tail (last 25 lines)</summary>
+          <pre>{{ sim.result.log.splitlines()[-25:] | join('\n') }}</pre>
+        </details>
+        {% endif %}
+      </section>
     </main>
 
     <footer class="site-footer">
-      <strong>Week 3 Goal:</strong> Flask Web App for BJT DC Bias (Divider / Fixed / Emitter) — form input → Python backend calculation → display VB, VE, VC, VCE, IC, IB, IE with Operating Region and warnings.
+      <strong>Week 4 Goal:</strong> Extend the Lab 03 BJT DC bias app with real ngspice runs for one CE voltage-divider amplifier — DC operating point (.op), AC frequency response (.ac), and transient waveforms (.tran) — while keeping all three analytical bias modes working.
     </footer>
   </body>
 </html>
