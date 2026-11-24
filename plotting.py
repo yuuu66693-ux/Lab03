@@ -90,15 +90,22 @@ def _empty_chart(width, height, x_label):
     }
 
 
-def prepare_bode(rows, width=720, height=280):
-    """Scale AC rows into gain and phase series on a log frequency axis."""
-    if not rows:
-        return _empty_chart(width, height, "Frequency (Hz)")
+BODE_PANEL_HEIGHT = 210
 
-    plot_left = PAD_LEFT
+
+def prepare_bode(rows, width=720):
+    """Scale AC rows into stacked gain and phase panels on a log x axis.
+
+    Magnitude and phase use separate vertical axes, as in a classic Bode
+    plot; sharing one axis would flatten the phase curve and hide its shape.
+    """
+    if not rows:
+        return _empty_chart(width, BODE_PANEL_HEIGHT, "Frequency (Hz)")
+
+    plot_left = 56
     plot_right = width - PAD_RIGHT
-    plot_top = PAD_TOP
-    plot_bottom = height - PAD_BOTTOM
+    plot_top = 16
+    plot_bottom = BODE_PANEL_HEIGHT - 30
 
     frequencies = [max(row["frequency_hz"], 1e-9) for row in rows]
     log_values = [math.log10(value) for value in frequencies]
@@ -116,7 +123,7 @@ def prepare_bode(rows, width=720, height=280):
         lambda tick: _frequency_label(10 ** tick),
     )
 
-    def make_series(name, key, color, y_label):
+    def make_panel(name, key, color, unit):
         values = [row[key] for row in rows]
         y_lo, y_hi = _padded_range(values)
         pairs = [
@@ -128,11 +135,11 @@ def prepare_bode(rows, width=720, height=280):
         ]
         return {
             "name": name,
-            "unit": y_label,
+            "unit": unit,
             "color": color,
             "points": _points(pairs),
             "y_ticks": _axis_ticks(
-                nice_ticks(y_lo, y_hi, 5),
+                nice_ticks(y_lo, y_hi, 4),
                 y_lo,
                 y_hi,
                 plot_bottom,
@@ -141,16 +148,18 @@ def prepare_bode(rows, width=720, height=280):
             ),
         }
 
+    panels = [
+        make_panel("Gain", "gain_db", GAIN_COLOR, "dB"),
+        make_panel("Phase", "phase_deg", PHASE_COLOR, "deg"),
+    ]
     return {
         "empty": False,
         "width": width,
-        "height": height,
+        "height": BODE_PANEL_HEIGHT,
         "x_label": "Frequency (Hz)",
         "x_ticks": x_ticks,
-        "series": [
-            make_series("Gain", "gain_db", GAIN_COLOR, "dB"),
-            make_series("Phase", "phase_deg", PHASE_COLOR, "deg"),
-        ],
+        "panels": panels,
+        "series": panels,
     }
 
 

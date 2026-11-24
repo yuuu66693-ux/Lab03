@@ -46,6 +46,16 @@ class TestPrepareBode(unittest.TestCase):
         self.assertLess(xs[0], xs[1])
         self.assertLess(xs[1], xs[2])
 
+    def test_bode_has_separate_gain_and_phase_panels(self):
+        chart = plotting.prepare_bode(bode_rows())
+
+        self.assertEqual([panel["name"] for panel in chart["panels"]], ["Gain", "Phase"])
+        self.assertEqual([panel["unit"] for panel in chart["panels"]], ["dB", "deg"])
+        self.assertNotEqual(
+            chart["panels"][0]["y_ticks"][0]["label"],
+            chart["panels"][1]["y_ticks"][0]["label"],
+        )
+
     def test_bode_marks_empty_input(self):
         chart = plotting.prepare_bode([])
 

@@ -261,21 +261,42 @@ def parse_op(log):
     }
 
 
-def _wrap_degrees(angle):
-    return ((angle + 180.0) % 360.0) - 180.0
+def _unwrap_degrees(values):
+    """Remove ±360° jumps so a phase curve stays continuous across frequency."""
+    unwrapped = []
+    offset = 0.0
+    previous = None
+    for value in values:
+        adjusted = value + offset
+        if previous is not None:
+            while adjusted - previous > 180.0:
+                offset -= 360.0
+                adjusted -= 360.0
+            while adjusted - previous < -180.0:
+                offset += 360.0
+                adjusted += 360.0
+        unwrapped.append(adjusted)
+        previous = adjusted
+    return unwrapped
 
 
 def parse_ac(log):
-    """Return frequency, gain in dB, and phase in degrees from ``.print ac``."""
+    """Return frequency, gain in dB, and phase in degrees from ``.print ac``.
+
+    The phase is unwrapped across the sweep so the Bode plot does not show a
+    false 360° step when the angle passes ±180°.
+    """
     rows = []
+    raw_phases = []
     for row in parse_print_tables(log):
         gain_db = _require(row, "vdb(out)") - row.get("vdb(in)", 0.0)
-        phase_deg = math.degrees(_require(row, "vp(out)") - row.get("vp(in)", 0.0))
+        raw_phases.append(math.degrees(_require(row, "vp(out)") - row.get("vp(in)", 0.0)))
         rows.append({
             "frequency_hz": _require(row, "frequency"),
             "gain_db": gain_db,
-            "phase_deg": _wrap_degrees(phase_deg),
         })
+    for row, phase_deg in zip(rows, _unwrap_degrees(raw_phases)):
+        row["phase_deg"] = phase_deg
     return rows
 
 

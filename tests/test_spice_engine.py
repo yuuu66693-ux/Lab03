@@ -183,6 +183,17 @@ class TestParsePrintTables(unittest.TestCase):
         self.assertAlmostEqual(rows[3]["vin_v"], 9.997442e-03, places=9)
         self.assertAlmostEqual(rows[3]["vout_v"], -1.75184e-02, places=9)
 
+    def test_parse_ac_unwraps_phase_through_180_degrees(self):
+        log = """\
+Index   frequency       vdb(out)        vp(out)         vdb(in)         vp(in)
+--------------------------------------------------------------------------------
+0\t1.000000e+04\t4.890000e+00\t-3.141590e+00\t0.000000e+00\t0.000000e+00
+1\t7.943282e+04\t4.890000e+00\t3.141592e+00\t0.000000e+00\t0.000000e+00
+"""
+        rows = spice_engine.parse_ac(log)
+
+        self.assertLess(abs(rows[0]["phase_deg"] - rows[1]["phase_deg"]), 0.01)
+
     def test_parse_rejects_log_without_tables(self):
         with self.assertRaises(ValueError):
             spice_engine.parse_print_tables("ngspice-47\nno tables here\n")

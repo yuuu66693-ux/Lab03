@@ -62,7 +62,8 @@ class TestSimulateRoute(unittest.TestCase):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Run simulation", response.data)
+        self.assertIn(b"Run Simulation", response.data)
+        self.assertIn(b"Engineering Results", response.data)
 
     def test_successful_dc_run_shows_spice_values_and_provenance(self):
         with mock.patch.object(flask_app, "run_analysis", return_value=RUN_OK):
